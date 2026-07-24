@@ -62,6 +62,26 @@ button {
   box-shadow: 0 8px 24px rgba(80, 40, 35, 0.08);
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settingsButton {
+  border: none;
+  background: transparent;
+  color: #a89793;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settingsButton:hover,
+.settingsButton:active {
+  color: #b94a48;
+}
+
 .layout {
   max-width: 1100px;
   margin: 0 auto;
@@ -204,9 +224,13 @@ button {
 
 .dateTitle {
   margin-bottom: 14px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
 }
 
-.dateTitle p {
+.dateTitle > div:first-child p {
   margin: 0 0 4px;
   font-size: 13px;
   color: #9c8a86;
@@ -243,7 +267,8 @@ button {
 }
 
 .addBox,
-.recordList {
+.recordList,
+.exerciseSettings {
   border-top: 1px solid rgba(140, 60, 50, 0.1);
   padding-top: 18px;
 }
@@ -306,13 +331,93 @@ select:focus {
 
 .exercisePickGrid {
   display: grid;
-  grid-template-columns: 0.85fr 1.4fr;
+  grid-template-columns: 1fr;
   gap: 10px;
+}
+
+.addBox.awaitingPart .exercisePickGrid {
+  grid-template-columns: 1fr;
+}
+
+.addBox.awaitingPart .exercisePickGrid,
+.addBox.awaitingPart > label,
+.addBox.awaitingPart .previousBox,
+.addBox.awaitingPart .inputGrid,
+.addBox.awaitingPart .mainButton {
+  display: none;
+}
+
+.dayPartPicker {
+  width: min(100%, 360px);
+}
+
+.dayPartPicker p,
+.fixedDayPart span {
+  margin: 0 0 6px;
+  color: #5f5553;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dayPartButtons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dayPartButtons button {
+  border: 1px solid rgba(185, 74, 72, 0.16);
+  border-radius: 15px;
+  background: #fff;
+  color: #8b4a47;
+  padding: 13px 8px;
+  font-weight: 800;
+}
+
+.dayPartButtons button:hover,
+.dayPartButtons button:active {
+  border-color: #b94a48;
+  background: #fff1ef;
+  color: #b94a48;
+}
+
+.fixedDayPart {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+}
+
+.fixedDayPart button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 49px;
+  border: 1px solid rgba(185, 74, 72, 0.14);
+  border-radius: 15px;
+  background: #fff1ef;
+  color: #b94a48;
+  padding: 13px;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.fixedDayPart button::after {
+  content: "⌄";
+  color: rgba(185, 74, 72, 0.52);
+  font-size: 17px;
+  font-weight: 700;
+  transform: translateY(-2px);
+}
+
+.fixedDayPart button:hover,
+.fixedDayPart button:active {
+  background: #fff1ef;
 }
 
 .inputGrid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr;
+  grid-template-columns: 1.2fr 1fr;
   gap: 10px;
 }
 
@@ -327,6 +432,69 @@ select:focus {
   box-shadow: 0 10px 22px rgba(185, 74, 72, 0.22);
   touch-action: manipulation;
   user-select: none;
+}
+
+.exerciseSettings .addTitleRow p {
+  margin: 3px 0 0;
+  color: #9c8a86;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settingsInputGrid {
+  display: grid;
+  grid-template-columns: 0.8fr 1.5fr;
+  gap: 10px;
+}
+
+.customExerciseList {
+  margin-top: 22px;
+}
+
+.customExerciseList h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.customExerciseList > p {
+  margin: 0;
+  color: #9c8a86;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.customExerciseItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(140, 60, 50, 0.08);
+  padding: 10px 2px;
+}
+
+.customExerciseItem div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.customExerciseItem span {
+  border-radius: 999px;
+  background: #f4eeec;
+  color: #8b7b77;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.customExerciseItem button {
+  border: none;
+  border-radius: 11px;
+  background: #f4eeec;
+  color: #9f3e3b;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .recordListHeader {
@@ -346,28 +514,6 @@ select:focus {
 
 .filterText {
   margin-top: 3px !important;
-}
-
-.copyTodayBox {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 12px;
-}
-
-.copyTodayBox button {
-  width: auto;
-  border: 1px solid rgba(185, 74, 72, 0.16);
-  border-radius: 999px;
-  background: #fff9f8;
-  color: #a34a47;
-  padding: 7px 10px;
-  font-weight: 800;
-  font-size: 12px;
-  box-shadow: none;
-}
-
-.copyTodayBox button:active {
-  background: #f8ebe8;
 }
 
 .emptyBox {
@@ -403,7 +549,7 @@ select:focus {
 
 .recordItem {
   display: grid;
-  grid-template-columns: 34px 1fr 34px;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
   align-items: center;
   gap: 10px;
   background: #fbf8f7;
@@ -411,6 +557,31 @@ select:focus {
   border-radius: 20px;
   padding: 12px;
   box-shadow: 0 6px 18px rgba(80, 40, 35, 0.04);
+}
+
+.recordActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recordEditFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.recordEditFields label {
+  margin: 0;
+  font-size: 11px;
+}
+
+.recordEditFields input {
+  min-width: 0;
+  margin-top: 4px;
+  padding: 9px 10px;
+  border-radius: 11px;
 }
 
 .recordItem.dragging {
@@ -447,6 +618,7 @@ select:focus {
 .recordTitleRow {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   margin-bottom: 5px;
 }
@@ -465,6 +637,23 @@ select:focus {
   padding: 3px 7px;
   font-size: 11px;
   font-weight: 800;
+}
+
+.progressBadge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #edf7f0;
+  color: #3d7a50;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.savedFeedback {
+  flex: 0 0 auto;
+  color: #a3918d;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .recordItem p {
@@ -618,6 +807,16 @@ select:focus {
     font-size: 23px;
   }
 
+  .dateTitle {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .dateTitle .dayPartPicker {
+    width: 100%;
+  }
+
   .tabBar {
     position: sticky;
     top: 8px;
@@ -636,7 +835,25 @@ select:focus {
     gap: 0;
   }
 
+  .dayPartButtons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dayPartPicker {
+    margin-bottom: 12px;
+  }
+
+  .fixedDayPart {
+    margin-bottom: 12px;
+  }
+
   .inputGrid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .settingsInputGrid {
     grid-template-columns: 1fr;
     gap: 0;
   }
@@ -652,17 +869,8 @@ select:focus {
     gap: 3px;
   }
 
-  .copyTodayBox {
-    justify-content: flex-start;
-  }
-
-  .copyTodayBox button {
-    padding: 7px 10px;
-    font-size: 12px;
-  }
-
   .recordItem {
-    grid-template-columns: 34px 1fr 34px;
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
     border-radius: 18px;
     padding: 12px;
   }
