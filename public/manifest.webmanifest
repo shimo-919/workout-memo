@@ -1,0 +1,18 @@
+{
+  "name": "筋トレメモ",
+  "short_name": "筋トレメモ",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f4f3",
+  "theme_color": "#b94a48",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

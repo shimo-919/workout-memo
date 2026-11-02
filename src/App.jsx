@@ -1,1051 +1,742 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { exerciseOptions, filterParts, getPartLabel, addBodyParts } from "./data/exercises.js";
+import { formatJapaneseDate, getTodayKey, isValidDateKey, parseDateKey, shiftMonth } from "./lib/dates.js";
+import { makeId } from "./lib/id.js";
 import {
-  DndContext,
-  PointerSensor,
-  TouchSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
+  KEYS,
+  emptyAppState,
+  loadAppState,
+  saveJson,
+} from "./lib/storage.js";
 import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+  currentStreak,
+  isUsableRecord,
+  monthStats,
+  recordPart,
+} from "./lib/records.js";
+import { deletePhotoRecord, getAllPhotoRecords, listPhotoMeta, savePhotoRecord } from "./lib/photos.js";
+import { createBackupZip, mergeState, readBackupFile } from "./lib/backup.js";
+import { downloadBlob } from "./lib/download.js";
+import { formatKg } from "./lib/weights.js";
+import CalendarMonth from "./components/CalendarMonth.jsx";
+import RecordList from "./components/RecordList.jsx";
+import AddForm from "./components/AddForm.jsx";
+import PhotoPanel from "./components/PhotoPanel.jsx";
+import WeightPanel from "./components/WeightPanel.jsx";
+import SettingsPanel from "./components/SettingsPanel.jsx";
+import WeightField from "./components/WeightField.jsx";
+import { IconPhoto, IconRecord, IconSettings, IconWeight } from "./components/Icons.jsx";
 import "./App.css";
 
-const STORAGE_KEY = "training-memo-app-v7";
-const DAY_PARTS_STORAGE_KEY = "training-memo-day-parts-v1";
-const CUSTOM_EXERCISES_STORAGE_KEY = "training-memo-custom-exercises-v1";
-const LAST_EXERCISES_STORAGE_KEY = "training-memo-last-exercises-v1";
-
-const bodyParts = [
-  { id: "all", label: "全部" },
-  { id: "chest", label: "胸" },
-  { id: "back", label: "背中" },
-  { id: "shoulder", label: "肩" },
-  { id: "arm", label: "腕" },
-  { id: "leg", label: "脚" },
-  { id: "core", label: "腹" },
-  { id: "cardio", label: "有酸素" },
+const NAV = [
+  { id: "record", label: "記録", Icon: IconRecord },
+  { id: "photo", label: "写真", Icon: IconPhoto },
+  { id: "weight", label: "体重", Icon: IconWeight },
+  { id: "settings", label: "設定", Icon: IconSettings },
 ];
 
-const addBodyParts = [
-  { id: "chest", label: "胸" },
-  { id: "back", label: "背中" },
-  { id: "shoulder", label: "肩" },
-  { id: "arm", label: "腕" },
-  { id: "leg", label: "脚" },
-  { id: "core", label: "腹" },
-  { id: "cardio", label: "有酸素" },
-  { id: "other", label: "その他" },
-];
-
-const exerciseOptions = [
-  // 胸
-  { name: "ベンチプレス", part: "chest" },
-  { name: "ダンベルプレス", part: "chest" },
-  { name: "チェストプレス", part: "chest" },
-
-  // 背中
-  { name: "ラットプルダウン", part: "back" },
-  { name: "シーテッドロー", part: "back" },
-  { name: "デッドリフト", part: "back" },
-
-  // 肩
-  { name: "サイドレイズ", part: "shoulder" },
-  { name: "ショルダープレス", part: "shoulder" },
-  { name: "リアレイズ", part: "shoulder" },
-
-  // 腕
-  { name: "アームカール", part: "arm" },
-  { name: "ハンマーカール", part: "arm" },
-  { name: "トライセプスプレスダウン", part: "arm" },
-
-  // 脚
-  { name: "スクワット", part: "leg" },
-  { name: "レッグプレス", part: "leg" },
-  { name: "レッグカール", part: "leg" },
-
-  // 腹
-  { name: "腹筋", part: "core" },
-  { name: "プランク", part: "core" },
-  { name: "レッグレイズ", part: "core" },
-
-  // 有酸素
-  { name: "ランニング", part: "cardio" },
-  { name: "バイク", part: "cardio" },
-  { name: "ウォーキング", part: "cardio" },
-
-  // その他
-  { name: "その他", part: "other" },
-];
-
-function makeId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function toDateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function getTodayKey() {
-  return toDateKey(new Date());
-}
-
-function getMonthDays(year, month) {
-  const firstDay = new Date(year, month, 1);
-  const lastDate = new Date(year, month + 1, 0).getDate();
-  const startDay = firstDay.getDay();
-
-  const days = [];
-
-  for (let i = 0; i < startDay; i++) {
-    days.push(null);
+function loadInitialState() {
+  try {
+    return loadAppState(window.localStorage);
+  } catch {
+    return emptyAppState("このブラウザでは保存データを読めなかったよ");
   }
-
-  for (let d = 1; d <= lastDate; d++) {
-    days.push(new Date(year, month, d));
-  }
-
-  return days;
-}
-
-function formatJapaneseDate(dateKey) {
-  const [y, m, d] = dateKey.split("-");
-  return `${Number(y)}年${Number(m)}月${Number(d)}日`;
-}
-
-function getPartLabel(partId) {
-  const allParts = [...bodyParts, { id: "other", label: "その他" }];
-  return allParts.find((part) => part.id === partId)?.label || "その他";
-}
-
-function getExercisePart(exerciseName) {
-  return (
-    exerciseOptions.find((exercise) => exercise.name === exerciseName)?.part ||
-    "other"
-  );
-}
-
-function SortableTrainingItem({
-  record,
-  previousRecord,
-  onDelete,
-  onUpdate,
-}) {
-  const [editWeight, setEditWeight] = useState(
-    record.weight === "自重" ? "" : record.weight
-  );
-  const [editReps, setEditReps] = useState(record.reps);
-  const [savedFeedback, setSavedFeedback] = useState(false);
-
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: record.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
-  const part = record.part || getExercisePart(record.exercise);
-  const weightIncrease =
-    previousRecord &&
-    Number.isFinite(Number(record.weight)) &&
-    Number.isFinite(Number(previousRecord.weight))
-      ? Number(record.weight) - Number(previousRecord.weight)
-      : 0;
-  const repsIncrease = previousRecord
-    ? Number(record.reps) - Number(previousRecord.reps)
-    : 0;
-
-  function saveNumbers() {
-    if (!editReps) {
-      setEditReps(record.reps);
-      return;
-    }
-
-    onUpdate(record.id, {
-      weight: editWeight.trim() || "自重",
-      reps: editReps,
-    });
-    setSavedFeedback(true);
-    window.setTimeout(() => setSavedFeedback(false), 1200);
-  }
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`recordItem ${isDragging ? "dragging" : ""}`}
-    >
-      <button
-        type="button"
-        className="dragHandle"
-        {...attributes}
-        {...listeners}
-        aria-label="並び替え"
-      >
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-
-      <div className="recordMain">
-        <div className="recordTitleRow">
-          <h4>{record.exercise}</h4>
-          <em>{getPartLabel(part)}</em>
-          {weightIncrease > 0 && (
-            <span className="progressBadge">
-              +{Number(weightIncrease.toFixed(2))}kg
-            </span>
-          )}
-          {repsIncrease > 0 && (
-            <span className="progressBadge">+{repsIncrease}回</span>
-          )}
-          {savedFeedback && <span className="savedFeedback">保存しました</span>}
-        </div>
-
-        <div className="recordEditFields">
-          <label>
-            重量（kg）
-            <input
-              value={editWeight}
-              onChange={(e) => setEditWeight(e.target.value)}
-              onBlur={saveNumbers}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              placeholder="自重"
-              inputMode="decimal"
-            />
-          </label>
-          <label>
-            回数
-            <input
-              value={editReps}
-              onChange={(e) => setEditReps(e.target.value)}
-              onBlur={saveNumbers}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              inputMode="numeric"
-            />
-          </label>
-        </div>
-      </div>
-
-      <div className="recordActions">
-        <button
-          type="button"
-          className="deleteButton"
-          onClick={() => onDelete(record.id)}
-        >
-          ×
-        </button>
-      </div>
-    </div>
-  );
 }
 
 export default function App() {
-  const today = new Date();
-
-  const [selectedDateKey, setSelectedDateKey] = useState(getTodayKey());
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
-
-  const [activeTab, setActiveTab] = useState("list");
+  const [loaded] = useState(loadInitialState);
+  const [records, setRecords] = useState(loaded.records);
+  const [dayParts, setDayParts] = useState(loaded.dayParts);
+  const [customExercises, setCustomExercises] = useState(loaded.customExercises);
+  const [lastExercises, setLastExercises] = useState(loaded.lastExercises);
+  const [bodyWeight, setBodyWeight] = useState(loaded.bodyWeight);
+  const [persist, setPersist] = useState(loaded.persist);
+  const [todayKey, setTodayKey] = useState(() => getTodayKey());
+  const [selectedDateKey, setSelectedDateKey] = useState(() => getTodayKey());
+  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
+  const [screen, setScreen] = useState("record");
+  const [subtab, setSubtab] = useState("list");
   const [activePart, setActivePart] = useState("all");
+  const [choosingPart, setChoosingPart] = useState(false);
+  const [photoMeta, setPhotoMeta] = useState([]);
+  const [toast, setToast] = useState("");
+  const [confirmState, setConfirmState] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [pendingImport, setPendingImport] = useState(null);
 
-  const [records, setRecords] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : {};
-  });
+  const showToast = useCallback((message) => {
+    setToast(message);
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => setToast(""), 2400);
+  }, []);
 
-  const [dayParts, setDayParts] = useState(() => {
-    const saved = localStorage.getItem(DAY_PARTS_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : {};
-  });
-
-  const [customExercises, setCustomExercises] = useState(() => {
-    const saved = localStorage.getItem(CUSTOM_EXERCISES_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [lastExercises, setLastExercises] = useState(() => {
-    const saved = localStorage.getItem(LAST_EXERCISES_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : {};
-  });
-
-  const [exercisePart, setExercisePart] = useState("");
-  const [exercise, setExercise] = useState("");
-  const [customExercise, setCustomExercise] = useState("");
-  const [settingsPart, setSettingsPart] = useState("chest");
-  const [newExerciseName, setNewExerciseName] = useState("");
-  const [isChoosingDayPart, setIsChoosingDayPart] = useState(false);
-  const [weight, setWeight] = useState("");
-  const [reps, setReps] = useState("10");
-  const [justAdded, setJustAdded] = useState(false);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 220,
-        tolerance: 8,
-      },
-    })
-  );
+  const refreshPhotos = useCallback(async () => {
+    try {
+      setPhotoMeta(await listPhotoMeta());
+    } catch {
+      showToast("写真の一覧を読めなかったよ");
+    }
+  }, [showToast]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-  }, [records]);
+    let cancelled = false;
+    listPhotoMeta()
+      .then((meta) => {
+        if (!cancelled) setPhotoMeta(meta);
+      })
+      .catch(() => {
+        if (!cancelled) showToast("写真の一覧を読めなかったよ");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showToast]);
 
   useEffect(() => {
-    localStorage.setItem(DAY_PARTS_STORAGE_KEY, JSON.stringify(dayParts));
-  }, [dayParts]);
+    function syncToday() {
+      setTodayKey(getTodayKey());
+    }
+    window.addEventListener("focus", syncToday);
+    document.addEventListener("visibilitychange", syncToday);
+    return () => {
+      window.removeEventListener("focus", syncToday);
+      document.removeEventListener("visibilitychange", syncToday);
+    };
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem(
-      CUSTOM_EXERCISES_STORAGE_KEY,
-      JSON.stringify(customExercises)
-    );
-  }, [customExercises]);
+    if (!persist.records) return;
+    if (!saveJson(localStorage, KEYS.records, records)) {
+      showToast("記録を保存できなかったよ。容量がいっぱいかもしれない。");
+    }
+  }, [records, persist.records, showToast]);
 
   useEffect(() => {
-    localStorage.setItem(
-      LAST_EXERCISES_STORAGE_KEY,
-      JSON.stringify(lastExercises)
-    );
-  }, [lastExercises]);
+    if (!persist.dayParts) return;
+    if (!saveJson(localStorage, KEYS.dayParts, dayParts)) {
+      showToast("部位を保存できなかったよ");
+    }
+  }, [dayParts, persist.dayParts, showToast]);
 
-  const selectedRecords = records[selectedDateKey] || [];
+  useEffect(() => {
+    if (!persist.customExercises) return;
+    if (!saveJson(localStorage, KEYS.customExercises, customExercises)) {
+      showToast("種目を保存できなかったよ");
+    }
+  }, [customExercises, persist.customExercises, showToast]);
 
-  const hasSavedDayPart = Object.prototype.hasOwnProperty.call(
-    dayParts,
-    selectedDateKey
-  );
-  const selectedDayPart = hasSavedDayPart
-    ? dayParts[selectedDateKey]
-    : selectedRecords[0]
-      ? selectedRecords[0].part || getExercisePart(selectedRecords[0].exercise)
-      : "";
+  useEffect(() => {
+    if (!persist.lastExercises) return;
+    saveJson(localStorage, KEYS.lastExercises, lastExercises);
+  }, [lastExercises, persist.lastExercises]);
 
-  const selectedRecordsByPart = selectedRecords.filter((record) => {
-    if (activePart === "all") return true;
-    const part = record.part || getExercisePart(record.exercise);
-    return part === activePart;
-  });
+  useEffect(() => {
+    if (!persist.bodyWeight) return;
+    if (!saveJson(localStorage, KEYS.bodyWeight, bodyWeight)) {
+      showToast("体重を保存できなかったよ");
+    }
+  }, [bodyWeight, persist.bodyWeight, showToast]);
 
-  const selectedRecordIds = selectedRecordsByPart.map((record) => record.id);
+  useEffect(() => {
+    if (!confirmState) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(event) {
+      if (event.key === "Escape") {
+        confirmState.resolve(false);
+        setConfirmState(null);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [confirmState]);
 
-  const allExerciseOptions = useMemo(
+  const allExercises = useMemo(
     () => [...exerciseOptions, ...customExercises],
     [customExercises]
   );
+  const selectedRecords = Array.isArray(records[selectedDateKey]) ? records[selectedDateKey] : [];
+  const savedPart = dayParts[selectedDateKey];
+  const hasSavedPart = typeof savedPart === "string" && savedPart;
+  const inferred = selectedRecords.find((record) => isUsableRecord(record));
+  const selectedDayPart = hasSavedPart
+    ? savedPart
+    : inferred
+      ? recordPart(inferred, customExercises)
+      : "";
+  const stats = useMemo(
+    () => monthStats(records, viewYear, viewMonth),
+    [records, viewYear, viewMonth]
+  );
+  const streak = useMemo(() => currentStreak(records, todayKey), [records, todayKey]);
+  const photoDates = useMemo(() => new Set(photoMeta.map((item) => item.dateKey)), [photoMeta]);
+  const photoBytes = photoMeta.reduce((sum, item) => sum + (item.byteSize || 0), 0);
 
-  const filteredExerciseOptions = useMemo(() => {
-    return allExerciseOptions.filter((item) => item.part === exercisePart);
-  }, [allExerciseOptions, exercisePart]);
+  function askConfirm(options) {
+    return new Promise((resolve) => {
+      setConfirmState({
+        message: options.message,
+        confirmLabel: options.confirmLabel || "続ける",
+        resolve,
+      });
+    });
+  }
 
-  const selectedExerciseName =
-    exercise === "その他" ? customExercise.trim() : exercise;
+  function closeConfirm(answer) {
+    confirmState?.resolve(answer);
+    setConfirmState(null);
+  }
 
-  const selectedExercisePart =
-    exercise === "その他" ? "other" : exercisePart;
-
-  const previousSameExerciseRecord = (() => {
-    if (!selectedExerciseName) return null;
-
-    const pastDateKeys = Object.keys(records)
-      .filter((dateKey) => dateKey < selectedDateKey)
-      .sort((a, b) => b.localeCompare(a));
-
-    for (const dateKey of pastDateKeys) {
-      const found = records[dateKey]?.find(
-        (record) => record.exercise === selectedExerciseName
-      );
-
-      if (found) {
-        return {
-          dateKey,
-          record: found,
-        };
-      }
-    }
-
-    return null;
-  })();
-
-  const todayKey = getTodayKey();
-
-  const monthDays = useMemo(() => {
-    return getMonthDays(viewYear, viewMonth);
-  }, [viewYear, viewMonth]);
+  function selectDate(dateKey) {
+    if (!isValidDateKey(dateKey)) return;
+    const date = parseDateKey(dateKey);
+    setSelectedDateKey(dateKey);
+    setViewYear(date.getFullYear());
+    setViewMonth(date.getMonth());
+    setChoosingPart(false);
+  }
 
   function changeMonth(diff) {
-    const next = new Date(viewYear, viewMonth + diff, 1);
-    setViewYear(next.getFullYear());
-    setViewMonth(next.getMonth());
+    const next = shiftMonth(viewYear, viewMonth, diff);
+    setViewYear(next.year);
+    setViewMonth(next.month);
   }
 
   function goToday() {
-    const now = new Date();
-    setViewYear(now.getFullYear());
-    setViewMonth(now.getMonth());
-    setSelectedDateKey(getTodayKey());
-    setIsChoosingDayPart(false);
-    setActiveTab("list");
-  }
-
-  function changeExercisePart(nextPart) {
-    setExercisePart(nextPart);
-
-    const savedExercise = lastExercises[nextPart];
-    const savedExerciseExists = allExerciseOptions.some(
-      (item) => item.part === nextPart && item.name === savedExercise
-    );
-    const firstExercise =
-      (savedExerciseExists && savedExercise) ||
-      allExerciseOptions.find((item) => item.part === nextPart)?.name ||
-      "その他";
-
-    setExercise(firstExercise);
-    setCustomExercise("");
-  }
-
-  function changeExercise(nextExercise) {
-    setExercise(nextExercise);
-    setLastExercises((prev) => ({
-      ...prev,
-      [exercisePart]: nextExercise,
-    }));
+    selectDate(getTodayKey());
+    setScreen("record");
+    setSubtab("list");
   }
 
   function selectDayPart(nextPart) {
-    if (isChoosingDayPart && selectedRecords.length > 0) {
-      const ok = window.confirm(
-        "今日の記録をリセットして部位を変更しますか？"
-      );
-      if (!ok) {
-        setIsChoosingDayPart(false);
-        return;
-      }
+    const current = hasSavedPart ? savedPart : selectedDayPart;
+    if (current && nextPart === current) {
+      setChoosingPart(false);
+      return;
     }
 
-    setDayParts((prev) => ({
-      ...prev,
-      [selectedDateKey]: nextPart,
-    }));
+    setDayParts((prev) => ({ ...prev, [selectedDateKey]: nextPart }));
+    setChoosingPart(false);
 
-    let nextDayRecords = [];
+    const usable = selectedRecords.filter((record) => isUsableRecord(record));
+    if (usable.length > 0) {
+      showToast("部位を変えたよ。記録はそのまま残してある。");
+      return;
+    }
+
     const previousDateKey = Object.keys(records)
-      .filter((dateKey) => dateKey < selectedDateKey)
+      .filter((dateKey) => dateKey < selectedDateKey && Array.isArray(records[dateKey]))
       .sort((a, b) => b.localeCompare(a))
       .find((dateKey) =>
-        records[dateKey]?.some((record) => {
-          const part = record.part || getExercisePart(record.exercise);
-          return part === nextPart;
-        })
+        records[dateKey].some(
+          (record) => isUsableRecord(record) && recordPart(record, customExercises) === nextPart
+        )
       );
 
-    if (previousDateKey) {
-      nextDayRecords = records[previousDateKey]
-        .filter((record) => {
-          const part = record.part || getExercisePart(record.exercise);
-          return part === nextPart;
-        })
-        .map((record) => ({
-          id: makeId(),
-          exercise: record.exercise,
-          part: nextPart,
-          weight: record.weight,
-          reps: record.reps,
-          createdAt: new Date().toISOString(),
-        }));
-    }
+    if (!previousDateKey) return;
 
+    const copied = records[previousDateKey]
+      .filter((record) => isUsableRecord(record) && recordPart(record, customExercises) === nextPart)
+      .map((record) => ({
+        ...record,
+        id: makeId(),
+        part: nextPart,
+        createdAt: new Date().toISOString(),
+      }));
+
+    if (copied.length === 0) return;
+    setRecords((prev) => ({ ...prev, [selectedDateKey]: copied }));
+    showToast(`前回の${getPartLabel(nextPart)}メニューを入れたよ`);
+  }
+
+  async function clearDay() {
+    const ok = await askConfirm({
+      message: "この日のトレーニング記録をすべて削除する？写真と体重は残るよ。",
+      confirmLabel: "削除する",
+    });
+    if (!ok) return;
     setRecords((prev) => {
       const next = { ...prev };
-
-      if (nextDayRecords.length > 0) {
-        next[selectedDateKey] = nextDayRecords;
-      } else {
-        delete next[selectedDateKey];
-      }
-
+      delete next[selectedDateKey];
       return next;
     });
-
-    changeExercisePart(nextPart);
-    setIsChoosingDayPart(false);
+    showToast("この日の記録を削除したよ");
   }
 
-  function changeDayPart() {
-    setIsChoosingDayPart(true);
+  function createCustomExercise(name, part) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCustomExercises((prev) => {
+      if (prev.some((item) => item.part === part && item.name === trimmed)) return prev;
+      if (exerciseOptions.some((item) => item.part === part && item.name === trimmed)) return prev;
+      return [...prev, { id: makeId(), name: trimmed, part }];
+    });
   }
 
-  function openAddForm() {
-    setCustomExercise("");
-    setWeight("");
-    setReps("10");
-    changeExercisePart(selectedDayPart);
-    setActiveTab("add");
-  }
-
-  function addCustomExercise() {
-    const name = newExerciseName.trim();
-
-    if (!name) {
-      alert("種目名を入力してね");
-      return;
-    }
-
-    const alreadyExists = allExerciseOptions.some(
-      (item) => item.part === settingsPart && item.name === name
-    );
-
-    if (alreadyExists) {
-      alert("同じ種目がすでにあるよ");
-      return;
-    }
-
-    setCustomExercises((prev) => [
-      ...prev,
-      { id: makeId(), name, part: settingsPart },
-    ]);
-    setNewExerciseName("");
-  }
-
-  function deleteCustomExercise(id) {
+  async function deleteCustomExercise(id) {
+    const ok = await askConfirm({
+      message: "この種目をリストから削除する？過去の記録は残るよ。",
+      confirmLabel: "削除する",
+    });
+    if (!ok) return;
     setCustomExercises((prev) => prev.filter((item) => item.id !== id));
   }
 
-  function recordMatchesPart(record) {
-    if (activePart === "all") return true;
-    const part = record.part || getExercisePart(record.exercise);
-    return part === activePart;
-  }
-
-  function hasRecord(dateKey) {
-    const dayRecords = records[dateKey] || [];
-    return dayRecords.some(recordMatchesPart);
-  }
-
-  function addRecord() {
-    const finalExercise =
-      exercise === "その他" ? customExercise.trim() : exercise;
-
-    if (!finalExercise) {
-      alert("種目を入力してね");
-      return;
-    }
-
-    if (!reps) {
-      alert("回数を選んでね");
-      return;
-    }
-
-    const newRecord = {
+  function addTraining(draft) {
+    const record = {
       id: makeId(),
-      exercise: finalExercise,
-      part: selectedExercisePart,
-      weight: weight || "自重",
-      reps,
+      ...draft,
       createdAt: new Date().toISOString(),
     };
-
     setRecords((prev) => ({
       ...prev,
-      [selectedDateKey]: [...(prev[selectedDateKey] || []), newRecord],
+      [selectedDateKey]: [
+        ...(Array.isArray(prev[selectedDateKey]) ? prev[selectedDateKey] : []),
+        record,
+      ],
     }));
-
-    setWeight("");
-    setReps("10");
-    setCustomExercise("");
-
-    setJustAdded(true);
-
-    window.setTimeout(() => {
-      setJustAdded(false);
-    }, 1400);
+    if (typeof dayParts[selectedDateKey] !== "string") {
+      setDayParts((prev) => ({ ...prev, [selectedDateKey]: draft.part }));
+    }
   }
 
-  function deleteRecord(id) {
-    const ok = window.confirm("このトレーニング記録を削除しますか？");
+  async function deleteTraining(id) {
+    const ok = await askConfirm({
+      message: "このトレーニング記録を削除する？",
+      confirmLabel: "削除する",
+    });
     if (!ok) return;
-
     setRecords((prev) => {
-      const nextDayRecords = (prev[selectedDateKey] || []).filter(
-        (record) => record.id !== id
-      );
-
-      const next = {
-        ...prev,
-        [selectedDateKey]: nextDayRecords,
-      };
-
-      if (nextDayRecords.length === 0) {
-        delete next[selectedDateKey];
-      }
-
+      const list = (prev[selectedDateKey] || []).filter((record) => !(record && record.id === id));
+      const next = { ...prev, [selectedDateKey]: list };
+      if (list.length === 0) delete next[selectedDateKey];
       return next;
     });
   }
 
-  function updateRecord(id, updates) {
+  function updateTraining(id, updates) {
     setRecords((prev) => ({
       ...prev,
-      [selectedDateKey]: (prev[selectedDateKey] || []).map((record) =>
-        record.id === id ? { ...record, ...updates } : record
-      ),
+      [selectedDateKey]: (prev[selectedDateKey] || []).map((record) => {
+        if (!record || record.id !== id) return record;
+        const next = { ...record, ...updates };
+        for (const [key, value] of Object.entries(updates)) {
+          if (value == null) delete next[key];
+        }
+        return next;
+      }),
     }));
   }
 
-  function usePreviousRecord() {
-    if (!previousSameExerciseRecord) return;
-
-    const previous = previousSameExerciseRecord.record;
-
-    setWeight(previous.weight === "自重" ? "" : previous.weight);
-    setReps(previous.reps);
+  function saveWeight(dateKey, kg) {
+    setBodyWeight((prev) => ({
+      ...prev,
+      [dateKey]: { ...(prev[dateKey] || {}), kg, updatedAt: new Date().toISOString() },
+    }));
+    showToast("体重を保存したよ");
   }
 
-  function getPreviousRecord(record) {
-    const previousDateKey = Object.keys(records)
-      .filter((dateKey) => dateKey < selectedDateKey)
-      .sort((a, b) => b.localeCompare(a))
-      .find((dateKey) =>
-        records[dateKey]?.some(
-          (pastRecord) => pastRecord.exercise === record.exercise
-        )
-      );
-
-    return previousDateKey
-      ? records[previousDateKey].find(
-          (pastRecord) => pastRecord.exercise === record.exercise
-        )
-      : null;
+  async function deleteWeight(dateKey) {
+    const ok = await askConfirm({
+      message: "この日の体重を削除する？",
+      confirmLabel: "削除する",
+    });
+    if (!ok) return;
+    setBodyWeight((prev) => {
+      const next = { ...prev };
+      delete next[dateKey];
+      return next;
+    });
+    showToast("体重を削除したよ");
   }
 
-  function handleDragEnd(event) {
-    const { active, over } = event;
+  async function savePhoto(record) {
+    try {
+      await savePhotoRecord(record);
+      await refreshPhotos();
+      showToast("写真を保存したよ");
+    } catch {
+      showToast("写真を保存できなかったよ。空き容量を確認してね。");
+      throw new Error("写真を保存できなかったよ");
+    }
+  }
 
-    if (!over || active.id === over.id) return;
+  async function deletePhoto(dateKey) {
+    const ok = await askConfirm({
+      message: "この日の写真を削除する？",
+      confirmLabel: "削除する",
+    });
+    if (!ok) return;
+    try {
+      await deletePhotoRecord(dateKey);
+      await refreshPhotos();
+      showToast("写真を削除したよ");
+    } catch {
+      showToast("写真を削除できなかったよ");
+    }
+  }
 
-    setRecords((prev) => {
-      const currentRecords = prev[selectedDateKey] || [];
-
-      const visibleRecords = currentRecords.filter((record) => {
-        if (activePart === "all") return true;
-        const part = record.part || getExercisePart(record.exercise);
-        return part === activePart;
-      });
-
-      const oldIndex = visibleRecords.findIndex(
-        (record) => record.id === active.id
+  async function exportBackup() {
+    setBusy(true);
+    try {
+      const photos = await getAllPhotoRecords();
+      const bytes = await createBackupZip(
+        { records, dayParts, customExercises, lastExercises, bodyWeight },
+        photos
       );
-      const newIndex = visibleRecords.findIndex(
-        (record) => record.id === over.id
+      downloadBlob(new Blob([bytes], { type: "application/zip" }), `筋トレメモ-backup-${todayKey}.zip`);
+      showToast(`バックアップを書き出したよ（写真${photos.length}枚）`);
+    } catch (error) {
+      showToast(error?.message || "書き出せなかったよ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function chooseImport(file) {
+    setBusy(true);
+    try {
+      setPendingImport(await readBackupFile(file));
+    } catch (error) {
+      showToast(error?.message || "読み込めなかったよ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmImport() {
+    if (!pendingImport) return;
+    setBusy(true);
+    const imported = pendingImport;
+    try {
+      const merged = mergeState(
+        { records, dayParts, customExercises, lastExercises, bodyWeight },
+        imported.data
       );
-
-      if (oldIndex === -1 || newIndex === -1) return prev;
-
-      const movedVisibleRecords = arrayMove(visibleRecords, oldIndex, newIndex);
-      let visibleIndex = 0;
-
-      const nextRecords = currentRecords.map((record) => {
-        if (activePart === "all") {
-          return movedVisibleRecords[visibleIndex++];
-        }
-
-        const part = record.part || getExercisePart(record.exercise);
-
-        if (part === activePart) {
-          return movedVisibleRecords[visibleIndex++];
-        }
-
-        return record;
+      setPersist({
+        records: true,
+        dayParts: true,
+        customExercises: true,
+        lastExercises: true,
+        bodyWeight: true,
       });
+      setRecords(merged.records);
+      setDayParts(merged.dayParts);
+      setCustomExercises(merged.customExercises);
+      setLastExercises(merged.lastExercises);
+      setBodyWeight(merged.bodyWeight);
 
-      return {
-        ...prev,
-        [selectedDateKey]: nextRecords,
-      };
+      let photoErrors = 0;
+      for (const photo of imported.photos) {
+        try {
+          await savePhotoRecord({
+            dateKey: photo.dateKey,
+            blob: photo.blob,
+            byteSize: photo.blob.size,
+            createdAt: new Date().toISOString(),
+          });
+        } catch {
+          photoErrors += 1;
+        }
+      }
+      await refreshPhotos();
+      setPendingImport(null);
+      const newer = imported.data.newer ? "新しい形式の一部は読み飛ばしたよ。" : "";
+      showToast(
+        photoErrors
+          ? `合流したよ。写真${photoErrors}枚は保存できなかった。`
+          : `バックアップを合流したよ。${newer}`
+      );
+    } catch (error) {
+      showToast(error?.message || "合流できなかったよ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function dayLabel(dateKey) {
+    const bits = [formatJapaneseDate(dateKey)];
+    if (dayHasWorkout(dateKey)) bits.push("トレーニングあり");
+    if (photoDates.has(dateKey)) bits.push("写真あり");
+    if (bodyWeight[dateKey]) bits.push(`体重${formatKg(bodyWeight[dateKey].kg)}kg`);
+    if (dateKey === selectedDateKey) bits.push("選択中");
+    return bits.join("、");
+  }
+
+  function dayHasWorkout(dateKey) {
+    const list = records[dateKey];
+    if (!Array.isArray(list)) return false;
+    return list.some((record) => {
+      if (!isUsableRecord(record)) return false;
+      if (activePart === "all") return true;
+      return recordPart(record, customExercises) === activePart;
     });
   }
 
   return (
     <div className="app">
+      <a className="skipLink" href="#main">
+        本文へ
+      </a>
       <header className="header">
         <div>
           <p className="label">Training Memo</p>
           <h1>筋トレメモ</h1>
         </div>
-
-        <div className="headerActions">
-          <button
-            type="button"
-            className="settingsButton"
-            onClick={() => setActiveTab("settings")}
-          >
-            設定
-          </button>
-          <button type="button" className="todayButton" onClick={goToday}>
-            今日
-          </button>
-        </div>
+        <button type="button" className="todayButton" onClick={goToday}>
+          今日
+        </button>
       </header>
 
-      <main className="layout">
-        <section className="calendarCard">
-          <div className="calendarHeader">
-            <button type="button" onClick={() => changeMonth(-1)}>
-              ‹
-            </button>
-            <h2>
-              {viewYear}年 {viewMonth + 1}月
-            </h2>
-            <button type="button" onClick={() => changeMonth(1)}>
-              ›
-            </button>
-          </div>
+      {loaded.warnings.length > 0 ? (
+        <p className="warningBanner">
+          {loaded.warnings.join("、")}
+          を読めなかったので、その部分は上書きしていないよ。バックアップがあれば読み込める。
+        </p>
+      ) : null}
 
-          <div className="partFilter">
-            {bodyParts.map((part) => (
-              <button
-                type="button"
-                key={part.id}
-                className={activePart === part.id ? "active" : ""}
-                onClick={() => setActivePart(part.id)}
-              >
-                {part.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="weekRow">
-            <span>日</span>
-            <span>月</span>
-            <span>火</span>
-            <span>水</span>
-            <span>木</span>
-            <span>金</span>
-            <span>土</span>
-          </div>
-
-          <div className="calendarGrid">
-            {monthDays.map((date, index) => {
-              if (!date) {
-                return <div className="emptyDay" key={`empty-${index}`} />;
-              }
-
-              const dateKey = toDateKey(date);
-              const selected = dateKey === selectedDateKey;
-              const todayDate = dateKey === todayKey;
-              const hasTraining = hasRecord(dateKey);
-
-              return (
+      <main id="main" className={screen === "record" ? "layout" : "layout layoutSingle"}>
+        {screen === "record" ? (
+          <CalendarMonth
+            viewYear={viewYear}
+            viewMonth={viewMonth}
+            onChangeMonth={changeMonth}
+            selectedDateKey={selectedDateKey}
+            todayKey={todayKey}
+            onSelectDate={(dateKey) => {
+              selectDate(dateKey);
+              setSubtab("list");
+            }}
+            getDayState={(dateKey) => ({
+              marked: dayHasWorkout(dateKey),
+              dotted: photoDates.has(dateKey),
+              label: dayLabel(dateKey),
+            })}
+          >
+            <div className="partFilter" role="toolbar" aria-label="部位で絞り込み">
+              {filterParts.map((part) => (
                 <button
                   type="button"
-                  key={dateKey}
-                  className={[
-                    "dayButton",
-                    hasTraining ? "hasRecordBg" : "",
-                    selected ? "selected" : "",
-                    todayDate ? "today" : "",
-                  ].join(" ")}
-                  onClick={() => {
-                    setSelectedDateKey(dateKey);
-                    setIsChoosingDayPart(false);
-                    setActiveTab("list");
-                  }}
+                  key={part.id}
+                  className={activePart === part.id ? "active" : ""}
+                  aria-pressed={activePart === part.id}
+                  onClick={() => setActivePart(part.id)}
                 >
-                  <span>{date.getDate()}</span>
+                  {part.label}
                 </button>
-              );
-            })}
-          </div>
-        </section>
+              ))}
+            </div>
+          </CalendarMonth>
+        ) : null}
 
         <section className="contentCard">
-          <div className="dateTitle">
-            <div>
-              <p>選択中の日付</p>
-              <h2>{formatJapaneseDate(selectedDateKey)}</h2>
-            </div>
-
-            {selectedDayPart && !isChoosingDayPart ? (
-              <div className="fixedDayPart">
-                <span>今日の部位</span>
-                <button
-                  type="button"
-                  onClick={changeDayPart}
-                  aria-label={`${getPartLabel(selectedDayPart)}から部位を選び直す`}
-                >
-                  {getPartLabel(selectedDayPart)}
-                </button>
+          {screen === "record" ? (
+            <>
+              <div className="summaryStrip" aria-label="今月のまとめ">
+                <p>
+                  <strong>{stats.days}</strong>
+                  <span>この月の日数</span>
+                </p>
+                <p>
+                  <strong>{streak}</strong>
+                  <span>連続日数</span>
+                </p>
+                {stats.volume > 0 ? (
+                  <p>
+                    <strong>{stats.volume.toLocaleString("ja-JP")}</strong>
+                    <span>ボリュームkg</span>
+                  </p>
+                ) : null}
               </div>
-            ) : (
-              <div className="dayPartPicker">
-                <p>今日の部位</p>
-                <div className="dayPartButtons">
-                  {addBodyParts.map((part) => (
+
+              <div className="dateTitle">
+                <div>
+                  <p>選択中の日付</p>
+                  <h2>{formatJapaneseDate(selectedDateKey)}</h2>
+                </div>
+                {selectedDayPart && !choosingPart ? (
+                  <div className="fixedDayPart">
+                    <span>この日の部位</span>
                     <button
                       type="button"
-                      key={part.id}
-                      onClick={() => selectDayPart(part.id)}
+                      onClick={() => setChoosingPart(true)}
+                      aria-label={`${getPartLabel(selectedDayPart)}から部位を選び直す`}
                     >
-                      {part.label}
+                      {getPartLabel(selectedDayPart)}
                     </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="tabBar">
-            <button
-              type="button"
-              className={activeTab === "list" ? "active" : ""}
-              onClick={() => setActiveTab("list")}
-            >
-              記録を見る
-            </button>
-
-            <button
-              type="button"
-              className={activeTab === "add" ? "active" : ""}
-              onClick={openAddForm}
-            >
-              追加する
-            </button>
-
-          </div>
-
-          {activeTab === "list" && (
-            <div className="recordList">
-              <div className="recordListHeader">
-                <div>
-                  <h3>この日のトレーニング</h3>
-                  <p className="filterText">
-                    表示中：{getPartLabel(activePart)}
-                  </p>
-                </div>
-
-                {selectedRecordsByPart.length > 1 && (
-                  <p>左のつまみで並び替え</p>
-                )}
-              </div>
-
-              {selectedRecordsByPart.length === 0 ? (
-                <div className="emptyBox">
-                  <p>この条件の記録はまだないよ。</p>
-                  <button type="button" onClick={openAddForm}>
-                    トレーニングを追加する
-                  </button>
-                </div>
-              ) : (
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={selectedRecordIds}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="sortableList">
-                      {selectedRecordsByPart.map((record) => (
-                        <SortableTrainingItem
-                          key={record.id}
-                          record={record}
-                          previousRecord={getPreviousRecord(record)}
-                          onDelete={deleteRecord}
-                          onUpdate={updateRecord}
-                        />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              )}
-            </div>
-          )}
-
-          {activeTab === "add" && (
-            <div className={`addBox ${exercisePart ? "" : "awaitingPart"}`}>
-              <div className="addTitleRow">
-                <h3>トレーニングを追加</h3>
-
-                {justAdded && <span className="addedBadge">追加しました</span>}
-              </div>
-
-              <div className="exercisePickGrid">
-                <label>
-                  種目
-                    <select
-                      value={exercise}
-                      onChange={(e) => changeExercise(e.target.value)}
-                    >
-                    {filteredExerciseOptions.map((item) => (
-                      <option key={item.name} value={item.name}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              {exercise === "その他" && (
-                <label>
-                  種目名
-                  <input
-                    value={customExercise}
-                    onChange={(e) => setCustomExercise(e.target.value)}
-                    placeholder="例：ケーブルサイドレイズ"
-                  />
-                </label>
-              )}
-
-              {previousSameExerciseRecord && (
-                <div className="previousBox">
-                  <div>
-                    <p>前回の{selectedExerciseName}</p>
-                    <h4>
-                      {previousSameExerciseRecord.record.weight}
-                      {previousSameExerciseRecord.record.weight === "自重"
-                        ? ""
-                        : "kg"}{" "}
-                      / {previousSameExerciseRecord.record.reps}回
-                    </h4>
-                    <span>
-                      {formatJapaneseDate(previousSameExerciseRecord.dateKey)}
-                    </span>
                   </div>
-
-                  <button type="button" onClick={usePreviousRecord}>
-                    使う
-                  </button>
-                </div>
-              )}
-
-              <div className="inputGrid">
-                <label>
-                  重量
-                  <input
-                    value={weight}
-                    onChange={(e) => setWeight(e.target.value)}
-                    placeholder="例：10"
-                    inputMode="decimal"
-                  />
-                </label>
-
-                <label>
-                  回数
-                  <input
-                    value={reps}
-                    onChange={(e) => setReps(e.target.value)}
-                    placeholder="例：10"
-                    inputMode="numeric"
-                  />
-                </label>
-
-              </div>
-
-              <button type="button" className="mainButton" onClick={addRecord}>
-                追加する
-              </button>
-            </div>
-          )}
-
-          {activeTab === "settings" && (
-            <div className="exerciseSettings">
-              <div className="addTitleRow">
-                <div>
-                  <h3>種目設定</h3>
-                  <p>よく使う種目を追加できます</p>
-                </div>
-              </div>
-
-              <div className="settingsInputGrid">
-                <label>
-                  部位
-                  <select
-                    value={settingsPart}
-                    onChange={(e) => setSettingsPart(e.target.value)}
-                  >
-                    {addBodyParts
-                      .filter((part) => part.id !== "other")
-                      .map((part) => (
-                        <option key={part.id} value={part.id}>
-                          {part.label}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-
-                <label>
-                  種目名
-                  <input
-                    value={newExerciseName}
-                    onChange={(e) => setNewExerciseName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") addCustomExercise();
-                    }}
-                    placeholder="例：インクラインプレス"
-                  />
-                </label>
-              </div>
-
-              <button
-                type="button"
-                className="mainButton"
-                onClick={addCustomExercise}
-              >
-                種目を追加
-              </button>
-
-              <div className="customExerciseList">
-                <h4>追加した種目</h4>
-                {customExercises.length === 0 ? (
-                  <p>追加した種目はまだありません</p>
                 ) : (
-                  customExercises.map((item) => (
-                    <div key={item.id} className="customExerciseItem">
-                      <div>
-                        <span>{getPartLabel(item.part)}</span>
-                        <strong>{item.name}</strong>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => deleteCustomExercise(item.id)}
-                      >
-                        削除
-                      </button>
+                  <div className="dayPartPicker">
+                    <p>この日の部位</p>
+                    <div className="dayPartButtons">
+                      {addBodyParts.map((part) => (
+                        <button type="button" key={part.id} onClick={() => selectDayPart(part.id)}>
+                          {part.label}
+                        </button>
+                      ))}
                     </div>
-                  ))
+                    <p className="hint">記録がない日は、前回の同じ部位を入れるよ。</p>
+                  </div>
                 )}
               </div>
-            </div>
-          )}
+
+              <WeightField
+                key={`record-${selectedDateKey}:${bodyWeight[selectedDateKey]?.kg ?? ""}`}
+                compact
+                dateKey={selectedDateKey}
+                entry={bodyWeight[selectedDateKey]}
+                onSave={saveWeight}
+                onDelete={deleteWeight}
+              />
+
+              <div className="tabBar" role="tablist" aria-label="記録の操作">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={subtab === "list"}
+                  className={subtab === "list" ? "active" : ""}
+                  onClick={() => setSubtab("list")}
+                >
+                  記録を見る
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={subtab === "add"}
+                  className={subtab === "add" ? "active" : ""}
+                  onClick={() => setSubtab("add")}
+                >
+                  追加する
+                </button>
+              </div>
+
+              {subtab === "list" ? (
+                <>
+                  <RecordList
+                    records={records}
+                    dateKey={selectedDateKey}
+                    activePart={activePart}
+                    partLabel={getPartLabel(activePart)}
+                    customExercises={customExercises}
+                    onDelete={deleteTraining}
+                    onUpdate={updateTraining}
+                    onReorder={(nextList) =>
+                      setRecords((prev) => ({ ...prev, [selectedDateKey]: nextList }))
+                    }
+                    onAddClick={() => setSubtab("add")}
+                  />
+                  {selectedRecords.some((record) => isUsableRecord(record)) ? (
+                    <button type="button" className="textButton dangerText" onClick={clearDay}>
+                      この日の記録をすべて削除
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <AddForm
+                  key={`${selectedDateKey}:${selectedDayPart || "none"}`}
+                  part={selectedDayPart}
+                  partLabel={getPartLabel(selectedDayPart)}
+                  options={allExercises}
+                  records={records}
+                  dateKey={selectedDateKey}
+                  lastExercise={lastExercises[selectedDayPart]}
+                  onRememberExercise={(part, name) =>
+                    setLastExercises((prev) => ({ ...prev, [part]: name }))
+                  }
+                  onAdd={addTraining}
+                  onCreateCustom={createCustomExercise}
+                />
+              )}
+            </>
+          ) : null}
+
+          {screen === "photo" ? (
+            <PhotoPanel
+              photoMeta={photoMeta}
+              weights={bodyWeight}
+              selectedDateKey={selectedDateKey}
+              todayKey={todayKey}
+              viewYear={viewYear}
+              viewMonth={viewMonth}
+              onChangeMonth={changeMonth}
+              onSelectDate={selectDate}
+              onSaveWeight={saveWeight}
+              onDeleteWeight={deleteWeight}
+              onSavePhoto={savePhoto}
+              onDeletePhoto={deletePhoto}
+              notify={showToast}
+            />
+          ) : null}
+
+          {screen === "weight" ? (
+            <WeightPanel
+              weights={bodyWeight}
+              selectedDateKey={selectedDateKey}
+              todayKey={todayKey}
+              onSelectDate={selectDate}
+              onSave={saveWeight}
+              onDelete={deleteWeight}
+            />
+          ) : null}
+
+          {screen === "settings" ? (
+            <SettingsPanel
+              customExercises={customExercises}
+              onAddExercise={createCustomExercise}
+              onDeleteExercise={deleteCustomExercise}
+              onExport={exportBackup}
+              onChooseImport={chooseImport}
+              pendingImport={pendingImport}
+              onConfirmImport={confirmImport}
+              onCancelImport={() => setPendingImport(null)}
+              busy={busy}
+              photoCount={photoMeta.length}
+              photoBytes={photoBytes}
+            />
+          ) : null}
         </section>
       </main>
+
+      <nav className="bottomNav" aria-label="メインメニュー">
+        {NAV.map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className={screen === item.id ? "active" : ""}
+            aria-current={screen === item.id ? "page" : undefined}
+            onClick={() => setScreen(item.id)}
+          >
+            <item.Icon />
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {toast ? (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      ) : null}
+
+      {confirmState ? (
+        <div className="modalBackdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+            <h3 id="confirm-title">{confirmState.message}</h3>
+            <div className="modalActions">
+              <button type="button" className="secondaryButton" autoFocus onClick={() => closeConfirm(false)}>
+                キャンセル
+              </button>
+              <button type="button" className="mainButton" onClick={() => closeConfirm(true)}>
+                {confirmState.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
