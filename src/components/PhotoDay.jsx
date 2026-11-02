@@ -1,68 +1,74 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import CalendarMonth from "./CalendarMonth.jsx";
-import CameraCapture from "./CameraCapture.jsx";
-import { formatJapaneseDate, monthPrefix } from "../lib/dates.js";
+import { formatJapaneseDate, formatLibraryDate, weekdayLabel } from "../lib/dates.js";
 import { formatKg, parseKgInput } from "../lib/weights.js";
 import { compressImage } from "../lib/image.js";
 import { getPhotosByDates } from "../lib/photos.js";
+import CameraCapture from "./CameraCapture.jsx";
+import { Sheet, ActionSheet } from "./Sheet.jsx";
+import { IconCamera, IconChevron, IconCompare, IconScale, IconTrash } from "./Icons.jsx";
 
-function WeightEditor({ dateKey, entry, error, onError, onSave }) {
+function kgPhrase(weights, dateKey) {
+  const kg = weights[dateKey]?.kg;
+  return Number.isFinite(kg) ? `この写真 = ${formatKg(kg)}kg` : "体重未記録";
+}
+
+function WeightSheet({ dateKey, entry, onSave, onClose }) {
   const [text, setText] = useState(entry ? formatKg(entry.kg) : "");
+  const [error, setError] = useState("");
 
-  function saveWeight(event) {
+  function save(event) {
     event.preventDefault();
     const parsed = parseKgInput(text);
     if (parsed.empty) {
-      onError("体重を入力してね");
+      setError("体重を入力してください");
       return;
     }
     if (!parsed.ok) {
-      onError("15〜500の数字で入力してね");
+      setError("15〜500の数字で入力してください");
       return;
     }
     onSave(dateKey, parsed.kg);
-    setText(formatKg(parsed.kg));
-    onError("");
+    onClose();
   }
 
   return (
-    <form className="weightRow" onSubmit={saveWeight}>
-      <label>
-        この日の体重（kg）
-        <input
-          value={text}
-          onChange={(event) => {
-            setText(event.target.value);
-            onError("");
-          }}
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="例：62.4"
-          aria-invalid={error ? "true" : "false"}
-        />
-      </label>
-      {error ? <p className="fieldError">{error}</p> : null}
-      <button type="submit" className="mainButton">
-        体重を保存
-      </button>
-    </form>
+    <Sheet
+      title="体重"
+      onClose={onClose}
+      trailing={
+        <button type="submit" form="weight-form" className="navTextButton strong">
+          保存
+        </button>
+      }
+    >
+      <form id="weight-form" onSubmit={save}>
+        <p className="sheetLead">{formatJapaneseDate(dateKey)}</p>
+        <div className="group">
+          <label className="cell field">
+            <span>kg</span>
+            <input
+              value={text}
+              onChange={(event) => {
+                setText(event.target.value);
+                setError("");
+              }}
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="62.4"
+              autoFocus
+            />
+          </label>
+        </div>
+        {error ? <p className="formError">{error}</p> : null}
+      </form>
+    </Sheet>
   );
-}
-
-function kgText(weights, dateKey) {
-  const kg = weights[dateKey]?.kg;
-  return Number.isFinite(kg) ? `この写真 = ${formatKg(kg)}kg` : "体重未記録";
 }
 
 export default function PhotoDay({
   photoMeta,
   weights,
-  selectedDateKey,
   todayKey,
-  viewYear,
-  viewMonth,
-  onChangeMonth,
-  onSelectDate,
   onSaveWeight,
   onSavePhoto,
   onDeletePhoto,
@@ -71,24 +77,25 @@ export default function PhotoDay({
   const libraryRef = useRef(null);
   const urlCache = useRef(new Map());
   const [photos, setPhotos] = useState([]);
+  const [zoom, setZoom] = useState("all");
+  const [viewerDate, setViewerDate] = useState(null);
+  const [chrome, setChrome] = useState(true);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [compareOn, setCompareOn] = useState(false);
-  const [pair, setPair] = useState([]);
-  const [weightError, setWeightError] = useState("");
+  const [weightFor, setWeightFor] = useState(null);
+  const [compareWith, setCompareWith] = useState(null);
+  const [pickingCompare, setPickingCompare] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const touch = useRef(null);
 
-  const monthKey = monthPrefix(viewYear, viewMonth);
   const photoDates = useMemo(() => photoMeta.map((item) => item.dateKey), [photoMeta]);
 
   useEffect(() => {
     let cancelled = false;
-    const monthDates = photoDates.filter((dateKey) => dateKey.startsWith(monthKey));
-    const needed = [...new Set([...monthDates, selectedDateKey, ...pair])];
-
     async function load() {
       try {
-        const records = await getPhotosByDates(needed);
+        const records = await getPhotosByDates(photoDates);
         if (cancelled) return;
         const next = records.map((record) => {
           const cacheKey = `${record.dateKey}:${record.createdAt}:${record.byteSize}`;
@@ -106,17 +113,17 @@ export default function PhotoDay({
             urlCache.current.delete(key);
           }
         }
+        next.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
         setPhotos(next);
       } catch {
-        if (!cancelled) notify("写真を読み込めなかったよ");
+        if (!cancelled) notify("写真を読み込めませんでした");
       }
     }
-
     load();
     return () => {
       cancelled = true;
     };
-  }, [photoDates, monthKey, selectedDateKey, pair, notify]);
+  }, [photoDates, notify]);
 
   useEffect(() => {
     const cache = urlCache.current;
@@ -133,10 +140,28 @@ export default function PhotoDay({
   }, [draft]);
 
   const byDate = useMemo(() => new Map(photos.map((photo) => [photo.dateKey, photo])), [photos]);
-  const selectedPhoto = byDate.get(selectedDateKey) || null;
-  const monthPhotos = photos
-    .filter((photo) => photo.dateKey.startsWith(monthKey))
-    .sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+  const viewer = viewerDate ? byDate.get(viewerDate) : null;
+  const viewerIndex = photos.findIndex((photo) => photo.dateKey === viewerDate);
+
+  const months = useMemo(() => {
+    const groups = new Map();
+    for (const photo of photos) {
+      const key = photo.dateKey.slice(0, 7);
+      const list = groups.get(key) || [];
+      list.push(photo);
+      groups.set(key, list);
+    }
+    return [...groups.entries()];
+  }, [photos]);
+
+  const years = useMemo(() => {
+    const groups = new Map();
+    for (const photo of photos) {
+      const key = photo.dateKey.slice(0, 4);
+      if (!groups.has(key)) groups.set(key, photo);
+    }
+    return [...groups.entries()];
+  }, [photos]);
 
   function rememberDraft(image) {
     setDraft({ ...image, url: URL.createObjectURL(image.blob) });
@@ -151,131 +176,225 @@ export default function PhotoDay({
     try {
       rememberDraft(await compressImage(file));
     } catch (error) {
-      notify(error.message || "画像を読み込めなかったよ");
+      notify(error.message || "この画像は読み込めませんでした");
     } finally {
       setBusy(false);
     }
   }
 
-  function toggleCompare(dateKey) {
-    if (!photoDates.includes(dateKey)) {
-      notify("この日の写真はまだないよ");
-      return;
-    }
-    setPair((current) => {
-      if (current.includes(dateKey)) return current.filter((item) => item !== dateKey);
-      return [...current, dateKey].slice(-2).sort();
-    });
+  function openViewer(dateKey) {
+    setViewerDate(dateKey);
+    setChrome(true);
   }
 
-  const left = byDate.get(pair[0]);
-  const right = byDate.get(pair[1]);
-
   return (
-    <div className="panel">
-      <p className="hint">選択中の日付</p>
-      <h2>{formatJapaneseDate(selectedDateKey)}</h2>
-
-      <figure className="photoStage">
-        {selectedPhoto ? (
-          <img src={selectedPhoto.url} alt={`${formatJapaneseDate(selectedDateKey)}の全身写真`} />
-        ) : (
-          <div className="photoEmpty">この日の写真はまだないよ</div>
-        )}
-        <figcaption>{kgText(weights, selectedDateKey)}</figcaption>
-      </figure>
-
-      <WeightEditor
-        key={`${selectedDateKey}:${weights[selectedDateKey]?.kg ?? ""}`}
-        dateKey={selectedDateKey}
-        entry={weights[selectedDateKey]}
-        error={weightError}
-        onError={setWeightError}
-        onSave={onSaveWeight}
-      />
-      <div className="photoActions">
-        <button type="button" className="mainButton" onClick={() => setCameraOpen(true)} disabled={busy}>
-          {selectedPhoto ? "撮り直す" : "カメラで撮る"}
-        </button>
-        <button type="button" className="secondaryButton" onClick={() => libraryRef.current?.click()} disabled={busy}>
-          ライブラリから選ぶ
-        </button>
-        {selectedPhoto ? (
-          <button type="button" className="textButton" onClick={() => onDeletePhoto(selectedDateKey)}>
-            この日の写真を削除
+    <div className="library">
+      {photos.length === 0 ? (
+        <div className="emptyLibrary">
+          <p>写真がありません</p>
+          <button type="button" className="navTextButton" onClick={() => setCameraOpen(true)}>
+            写真を撮る
           </button>
-        ) : null}
-      </div>
-      <input
-        ref={libraryRef}
-        className="fileInput"
-        type="file"
-        accept="image/*"
-        aria-label="写真をライブラリから選ぶ"
-        onChange={onLibrary}
-      />
-      <p className="hint">写真はこの端末だけに保存するよ。1日1枚。</p>
+        </div>
+      ) : null}
 
-      <CalendarMonth
-        embedded
-        viewYear={viewYear}
-        viewMonth={viewMonth}
-        onChangeMonth={onChangeMonth}
-        selectedDateKey={selectedDateKey}
-        todayKey={todayKey}
-        onSelectDate={(dateKey) => {
-          onSelectDate(dateKey);
-          if (compareOn) toggleCompare(dateKey);
-        }}
-        getDayState={(dateKey) => ({
-          marked: photoDates.includes(dateKey),
-          dotted: pair.includes(dateKey),
-          label: [formatJapaneseDate(dateKey), photoDates.includes(dateKey) ? "写真あり" : "写真なし", kgText(weights, dateKey)].join("、"),
-        })}
-      />
-
-      <button
-        type="button"
-        className="secondaryButton wide"
-        onClick={() => {
-          setCompareOn((value) => !value);
-          setPair([]);
-        }}
-      >
-        {compareOn ? "比較をやめる" : "2枚を比べる"}
-      </button>
-      {compareOn ? <p className="hint">写真のある日を2つ選んでね。左が古い日付だよ。</p> : null}
-
-      {left && right ? (
-        <div className="compareSide">
-          {[left, right].map((photo) => (
-            <figure key={photo.dateKey}>
-              <img src={photo.url} alt={`${formatJapaneseDate(photo.dateKey)}の全身写真`} />
-              <figcaption>
-                <strong>{formatJapaneseDate(photo.dateKey)}</strong>
-                <span>{kgText(weights, photo.dateKey)}</span>
-              </figcaption>
-            </figure>
+      {zoom === "all" ? (
+        <div className="grid">
+          {photos.map((photo) => (
+            <button type="button" className="thumb" key={photo.dateKey} onClick={() => openViewer(photo.dateKey)}>
+              <img src={photo.url} alt={`${formatLibraryDate(photo.dateKey, todayKey)} ${kgPhrase(weights, photo.dateKey)}`} />
+              <span>{Number.isFinite(weights[photo.dateKey]?.kg) ? `${formatKg(weights[photo.dateKey].kg)}kg` : ""}</span>
+            </button>
           ))}
         </div>
       ) : null}
 
-      <div className="photoTimeline">
-        <h3>この月の写真</h3>
-        {monthPhotos.length === 0 ? (
-          <p className="hint">この月の写真はまだないよ。</p>
-        ) : (
-          monthPhotos.map((photo) => (
-            <button type="button" key={photo.dateKey} className="timelineItem" onClick={() => onSelectDate(photo.dateKey)}>
-              <img src={photo.url} alt="" />
-              <span>
-                <strong>{formatJapaneseDate(photo.dateKey)}</strong>
-                <em>{kgText(weights, photo.dateKey)}</em>
-              </span>
-            </button>
+      {zoom === "days"
+        ? photos.map((photo) => (
+            <section className="dayBlock" key={photo.dateKey}>
+              <div className="dayHeader">
+                <h2>
+                  {formatLibraryDate(photo.dateKey, todayKey)}
+                  <small>{weekdayLabel(photo.dateKey)}</small>
+                </h2>
+                <button type="button" className="kgLink" onClick={() => setWeightFor(photo.dateKey)}>
+                  {kgPhrase(weights, photo.dateKey)}
+                </button>
+              </div>
+              <div className="dayRow">
+                <button type="button" className="thumb" onClick={() => openViewer(photo.dateKey)}>
+                  <img src={photo.url} alt="" />
+                  <span>{Number.isFinite(weights[photo.dateKey]?.kg) ? `${formatKg(weights[photo.dateKey].kg)}kg` : ""}</span>
+                </button>
+              </div>
+            </section>
           ))
-        )}
+        : null}
+
+      {zoom === "months"
+        ? months.map(([month, list]) => (
+            <section className="dayBlock" key={month}>
+              <div className="dayHeader">
+                <h2>
+                  {Number(month.slice(0, 4))}年{Number(month.slice(5))}月
+                </h2>
+              </div>
+              <div className="grid">
+                {list.map((photo) => (
+                  <button type="button" className="thumb" key={photo.dateKey} onClick={() => openViewer(photo.dateKey)}>
+                    <img src={photo.url} alt="" />
+                    <span>{Number(photo.dateKey.slice(8))}日</span>
+                    <em>{Number.isFinite(weights[photo.dateKey]?.kg) ? `${formatKg(weights[photo.dateKey].kg)}kg` : ""}</em>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))
+        : null}
+
+      {zoom === "years" ? (
+        <div className="yearList">
+          {years.map(([year, photo]) => (
+            <button type="button" className="yearTile" key={year} onClick={() => setZoom("months")}>
+              <img src={photo.url} alt="" />
+              <span>{year}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="libraryEnd" />
+
+      <div className="zoomControl" role="tablist" aria-label="表示">
+        {[
+          ["all", "すべて"],
+          ["days", "日"],
+          ["months", "月"],
+          ["years", "年"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={zoom === id}
+            className={zoom === id ? "active" : ""}
+            onClick={() => setZoom(id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
+
+      <button type="button" className="navPlus" aria-label="写真を撮る" onClick={() => setCameraOpen(true)}>
+        <IconCamera />
+      </button>
+      <input ref={libraryRef} className="fileInput" type="file" accept="image/*" aria-label="写真をライブラリから選ぶ" onChange={onLibrary} />
+
+      {viewer ? (
+        <div
+          className={chrome ? "viewer" : "viewer chromeOff"}
+          onTouchStart={(event) => {
+            touch.current = event.changedTouches[0].clientX;
+          }}
+          onTouchEnd={(event) => {
+            const start = touch.current;
+            if (start == null) return;
+            const delta = event.changedTouches[0].clientX - start;
+            if (delta > 50 && viewerIndex > 0) openViewer(photos[viewerIndex - 1].dateKey);
+            if (delta < -50 && viewerIndex < photos.length - 1) openViewer(photos[viewerIndex + 1].dateKey);
+          }}
+        >
+          <button type="button" className="viewerStage" onClick={() => setChrome((value) => !value)} aria-label="操作を表示">
+            <img src={viewer.url} alt={`${formatLibraryDate(viewer.dateKey, todayKey)}の全身写真`} />
+          </button>
+          <header className="viewerTop">
+            <button type="button" className="viewerText" onClick={() => setViewerDate(null)}>
+              <IconChevron />
+              写真
+            </button>
+            <div className="viewerTitle">
+              <strong>{formatLibraryDate(viewer.dateKey, todayKey)}</strong>
+              <span>{kgPhrase(weights, viewer.dateKey)}</span>
+            </div>
+            <span className="viewerSpacer" />
+          </header>
+          <footer className="viewerBar">
+            <button type="button" aria-label="体重" onClick={() => setWeightFor(viewer.dateKey)}>
+              <IconScale />
+            </button>
+            <button type="button" aria-label="比べる" onClick={() => setPickingCompare(true)}>
+              <IconCompare />
+            </button>
+            <button type="button" aria-label="削除" onClick={() => setPendingDelete(viewer.dateKey)}>
+              <IconTrash />
+            </button>
+            <button type="button" aria-label="撮り直す" onClick={() => setCameraOpen(true)}>
+              <IconCamera />
+            </button>
+          </footer>
+        </div>
+      ) : null}
+
+      {compareWith && byDate.get(compareWith) && viewer ? (
+        <div className="compareView">
+          <header className="viewerTop">
+            <button type="button" className="viewerText" onClick={() => setCompareWith(null)}>
+              <IconChevron />
+              戻る
+            </button>
+            <div className="viewerTitle">
+              <strong>比較</strong>
+            </div>
+            <span className="viewerSpacer" />
+          </header>
+          <div className="comparePhotos">
+            {[byDate.get(compareWith), viewer].sort((a, b) => a.dateKey.localeCompare(b.dateKey)).map((photo) => (
+              <figure key={photo.dateKey}>
+                <img src={photo.url} alt={`${formatLibraryDate(photo.dateKey, todayKey)}の全身写真`} />
+                <figcaption>
+                  <strong>{formatLibraryDate(photo.dateKey, todayKey)}</strong>
+                  <span>{kgPhrase(weights, photo.dateKey)}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {pickingCompare ? (
+        <Sheet title="比べる日" onClose={() => setPickingCompare(false)}>
+          <div className="group">
+            {photos
+              .filter((photo) => photo.dateKey !== viewerDate)
+              .map((photo) => (
+                <button
+                  type="button"
+                  className="cell pickRow"
+                  key={photo.dateKey}
+                  onClick={() => {
+                    setCompareWith(photo.dateKey);
+                    setPickingCompare(false);
+                  }}
+                >
+                  <img src={photo.url} alt="" />
+                  <span>
+                    <strong>{formatLibraryDate(photo.dateKey, todayKey)}</strong>
+                    <em>{kgPhrase(weights, photo.dateKey)}</em>
+                  </span>
+                </button>
+              ))}
+          </div>
+        </Sheet>
+      ) : null}
+
+      {weightFor ? (
+        <WeightSheet
+          dateKey={weightFor}
+          entry={weights[weightFor]}
+          onSave={onSaveWeight}
+          onClose={() => setWeightFor(null)}
+        />
+      ) : null}
 
       {cameraOpen ? (
         <CameraCapture
@@ -286,41 +405,57 @@ export default function PhotoDay({
       ) : null}
 
       {draft ? (
-        <div className="modalBackdrop">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="draft-title">
-            <h3 id="draft-title">{selectedPhoto ? "この日の写真を上書きする？" : "この写真を保存する？"}</h3>
-            <img className="draftPreview" src={draft.url} alt="保存前の写真" />
-            <p className="kgCaption">{kgText(weights, selectedDateKey)}</p>
-            <div className="modalActions">
-              <button type="button" className="secondaryButton" onClick={() => setDraft(null)} disabled={busy}>
-                やめる
-              </button>
-              <button
-                type="button"
-                className="mainButton"
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  try {
-                    await onSavePhoto({
-                      dateKey: selectedDateKey,
-                      blob: draft.blob,
-                      width: draft.width,
-                      height: draft.height,
-                      byteSize: draft.blob.size,
-                      createdAt: new Date().toISOString(),
-                    });
-                    setDraft(null);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                保存する
-              </button>
+        <div className="viewer">
+          <header className="viewerTop">
+            <button type="button" className="viewerText" onClick={() => setDraft(null)}>
+              キャンセル
+            </button>
+            <div className="viewerTitle">
+              <strong>{viewerDate ? formatLibraryDate(viewerDate, todayKey) : "今日"}</strong>
+              <span>{kgPhrase(weights, viewerDate || todayKey)}</span>
             </div>
-          </div>
+            <button
+              type="button"
+              className="viewerText"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onSavePhoto({
+                    dateKey: viewerDate || todayKey,
+                    blob: draft.blob,
+                    width: draft.width,
+                    height: draft.height,
+                    byteSize: draft.blob.size,
+                    createdAt: new Date().toISOString(),
+                  });
+                  const savedDate = viewerDate || todayKey;
+                  setDraft(null);
+                  setViewerDate(savedDate);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              保存
+            </button>
+          </header>
+          <img className="draftFull" src={draft.url} alt="保存前の写真" />
         </div>
+      ) : null}
+
+      {pendingDelete ? (
+        <ActionSheet
+          message="この写真を削除しますか？"
+          confirmLabel="写真を削除"
+          onClose={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            const dateKey = pendingDelete;
+            setPendingDelete(null);
+            setViewerDate(null);
+            await onDeletePhoto(dateKey);
+          }}
+        />
       ) : null}
     </div>
   );

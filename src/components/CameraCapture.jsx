@@ -115,10 +115,11 @@ export default function CameraCapture({ onClose, onShot, onPickLibrary }) {
     <div className="modalBackdrop" role="presentation">
       <div className="cameraModal" role="dialog" aria-modal="true" aria-labelledby="camera-title">
         <div className="cameraBar">
-          <h3 id="camera-title">全身を撮る</h3>
-          <button type="button" className="textButton light" onClick={onClose}>
-            閉じる
+          <button type="button" className="viewerText" onClick={onClose}>
+            キャンセル
           </button>
+          <h3 id="camera-title">写真</h3>
+          <span className="viewerSpacer" />
         </div>
         <div className="viewfinder">
           <video ref={videoRef} playsInline muted autoPlay />
@@ -145,8 +146,8 @@ export default function CameraCapture({ onClose, onShot, onPickLibrary }) {
           <button type="button" onClick={startCountdown} disabled={!ready || busy || count != null}>
             3秒後
           </button>
-          <button type="button" className="shutter" onClick={capture} disabled={!ready || busy}>
-            {busy ? "処理中" : "撮る"}
+          <button type="button" className="shutter" onClick={capture} disabled={!ready || busy} aria-label={busy ? "処理中" : "撮る"}>
+            <span />
           </button>
           <button type="button" onClick={onPickLibrary}>
             ライブラリ

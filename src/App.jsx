@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import CalendarMonth from "./components/CalendarMonth.jsx";
 import LogScreen from "./components/LogScreen.jsx";
 import PhotoDay from "./components/PhotoDay.jsx";
+import { IconList, IconPhotos } from "./components/Icons.jsx";
 import { exerciseOptions } from "./data/exercises.js";
-import { formatJapaneseDate, getTodayKey, isValidDateKey, parseDateKey, shiftMonth } from "./lib/dates.js";
+import { getTodayKey, isValidDateKey, parseDateKey, shiftMonth } from "./lib/dates.js";
 import { makeId } from "./lib/id.js";
 import { KEYS, emptyAppState, loadAppState, saveJson } from "./lib/storage.js";
 import { deletePhotoRecord, listPhotoMeta, savePhotoRecord } from "./lib/photos.js";
@@ -28,9 +28,10 @@ export default function App() {
   const [selectedDateKey, setSelectedDateKey] = useState(() => getTodayKey());
   const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
-  const [screen, setScreen] = useState("log");
+  const [screen, setScreen] = useState("photo");
   const [photoMeta, setPhotoMeta] = useState([]);
   const [toast, setToast] = useState("");
+  const [compact, setCompact] = useState(false);
   const toastTimer = useRef(0);
 
   const showToast = useCallback((message) => {
@@ -82,7 +83,6 @@ export default function App() {
   }, [bodyWeight, persist.bodyWeight]);
 
   const exercises = useMemo(() => [...exerciseOptions, ...customExercises], [customExercises]);
-  const photoDates = useMemo(() => new Set(photoMeta.map((item) => item.dateKey)), [photoMeta]);
 
   async function refreshPhotos() {
     try {
@@ -124,7 +124,6 @@ export default function App() {
   }
 
   function deleteTraining(id) {
-    if (!window.confirm("この記録を削除する？")) return;
     setRecords((prev) => {
       const list = (prev[selectedDateKey] || []).filter((record) => !(record && record.id === id));
       const next = { ...prev, [selectedDateKey]: list };
@@ -153,7 +152,6 @@ export default function App() {
   }
 
   async function deletePhoto(dateKey) {
-    if (!window.confirm("この日の写真を削除する？")) return;
     try {
       await deletePhotoRecord(dateKey);
       await refreshPhotos();
@@ -163,82 +161,78 @@ export default function App() {
     }
   }
 
+  const title = screen === "photo" ? "写真" : "記録";
+
   return (
     <div className="app">
-      <header className="header">
-        <div>
-          <p className="label">Training Memo</p>
-          <h1>筋トレメモ</h1>
+      <header className="navBar">
+        <div className="navBarInner">
+          <span className="navSide" />
+          <h1 className={compact ? "navTitle" : "navTitle hidden"}>{title}</h1>
+          <span className="navSide" />
         </div>
-        <button
-          type="button"
-          className="todayButton"
-          onClick={() => {
-            selectDate(getTodayKey());
-            setScreen("log");
-          }}
-        >
-          今日
-        </button>
       </header>
 
-      {loaded.warnings.length > 0 ? (
-        <p className="warningBanner">
-          {loaded.warnings.join("、")}を読めなかったので、その部分は上書きしていないよ。
-        </p>
-      ) : null}
-
-      <main id="main" className={screen === "log" ? "layout" : "layout layoutSingle"}>
+      <main
+        id="main"
+        className={screen === "photo" ? "scroller photoScroller" : "scroller"}
+        onScroll={(event) => setCompact(event.currentTarget.scrollTop > 36)}
+      >
+        <h1 className="largeTitle">{title}</h1>
+        {loaded.warnings.length > 0 ? (
+          <p className="warningNote">{loaded.warnings.join("、")}は読めなかったので上書きしていません。</p>
+        ) : null}
         {screen === "log" ? (
-          <CalendarMonth
+          <LogScreen
+            dateKey={selectedDateKey}
+            todayKey={todayKey}
             viewYear={viewYear}
             viewMonth={viewMonth}
-            onChangeMonth={changeMonth}
-            selectedDateKey={selectedDateKey}
-            todayKey={todayKey}
+            records={records}
+            exercises={exercises}
+            lastByPart={lastExercises}
             onSelectDate={selectDate}
-            getDayState={(dateKey) => ({
-              marked: Array.isArray(records[dateKey]) && records[dateKey].some((record) => record?.exercise),
-              dotted: photoDates.has(dateKey),
-              label: formatJapaneseDate(dateKey),
-            })}
+            onChangeMonth={changeMonth}
+            onAdd={addTraining}
+            onDelete={deleteTraining}
+            onRemember={(part, name) => setLastExercises((prev) => ({ ...prev, [part]: name }))}
           />
-        ) : null}
-        <section className="contentCard">
-          {screen === "log" ? (
-            <LogScreen
-              dateKey={selectedDateKey}
-              records={records}
-              exercises={exercises}
-              lastByPart={lastExercises}
-              onAdd={addTraining}
-              onDelete={deleteTraining}
-              onRemember={(part, name) => setLastExercises((prev) => ({ ...prev, [part]: name }))}
-            />
-          ) : (
-            <PhotoDay
-              photoMeta={photoMeta}
-              weights={bodyWeight}
-              selectedDateKey={selectedDateKey}
-              todayKey={todayKey}
-              viewYear={viewYear}
-              viewMonth={viewMonth}
-              onChangeMonth={changeMonth}
-              onSelectDate={selectDate}
-              onSaveWeight={saveWeight}
-              onSavePhoto={savePhoto}
-              onDeletePhoto={deletePhoto}
-              notify={showToast}
-            />
-          )}
-        </section>
+        ) : (
+          <PhotoDay
+            photoMeta={photoMeta}
+            weights={bodyWeight}
+            todayKey={todayKey}
+            onSaveWeight={saveWeight}
+            onSavePhoto={savePhoto}
+            onDeletePhoto={deletePhoto}
+            notify={showToast}
+          />
+        )}
       </main>
 
-      <nav className="bottomNav" aria-label="メインメニュー">
-        <button type="button" className={screen === "log" ? "active" : ""} aria-current={screen === "log" ? "page" : undefined} onClick={() => setScreen("log")}>
+      <nav className="tabBar" aria-label="メイン">
+        <button
+          type="button"
+          className={screen === "log" ? "active" : ""}
+          aria-current={screen === "log" ? "page" : undefined}
+          onClick={() => {
+            setScreen("log");
+            setCompact(false);
+          }}
+        >
+          <IconList />
           記録
         </button>
-        <button type="button" className={screen === "photo" ? "active" : ""} aria-current={screen === "photo" ? "page" : undefined} onClick={() => setScreen("photo")}>
+        <button
+          type="button"
+          className={screen === "photo" ? "active" : ""}
+          aria-current={screen === "photo" ? "page" : undefined}
+          onClick={() => {
+            setScreen("photo");
+            setCompact(false);
+          }}
+        >
+          <IconPhotos />
           写真
         </button>
       </nav>
