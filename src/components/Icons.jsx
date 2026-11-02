@@ -92,6 +92,16 @@ export function IconScale() {
   );
 }
 
+export function IconMore() {
+  return (
+    <Icon>
+      <circle cx="6" cy="12" r="1.25" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none" />
+      <circle cx="18" cy="12" r="1.25" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
 export function IconClose() {
   return (
     <Icon>

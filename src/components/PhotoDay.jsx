@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatJapaneseDate, formatLibraryDate, weekdayLabel } from "../lib/dates.js";
-import { formatKg, parseKgInput } from "../lib/weights.js";
+import { formatLibraryDate, weekdayLabel } from "../lib/dates.js";
+import { formatKg } from "../lib/weights.js";
 import { compressImage } from "../lib/image.js";
 import { getPhotosByDates } from "../lib/photos.js";
 import CameraCapture from "./CameraCapture.jsx";
 import { Sheet, ActionSheet } from "./Sheet.jsx";
+import WeightBoard from "./WeightBoard.jsx";
 import { IconCamera, IconChevron, IconCompare, IconScale, IconTrash } from "./Icons.jsx";
 
 function kgPhrase(weights, dateKey) {
@@ -12,56 +13,84 @@ function kgPhrase(weights, dateKey) {
   return Number.isFinite(kg) ? `この写真 = ${formatKg(kg)}kg` : "体重未記録";
 }
 
-function WeightSheet({ dateKey, entry, onSave, onClose }) {
-  const [text, setText] = useState(entry ? formatKg(entry.kg) : "");
-  const [error, setError] = useState("");
+function ComparePane({ older, newer, weights, todayKey, onClose }) {
+  const [mode, setMode] = useState("side");
+  const frameRef = useRef(null);
+  const [pos, setPos] = useState(50);
+  const [width, setWidth] = useState(0);
 
-  function save(event) {
-    event.preventDefault();
-    const parsed = parseKgInput(text);
-    if (parsed.empty) {
-      setError("体重を入力してください");
-      return;
-    }
-    if (!parsed.ok) {
-      setError("15〜500の数字で入力してください");
-      return;
-    }
-    onSave(dateKey, parsed.kg);
-    onClose();
-  }
+  useEffect(() => {
+    const element = frameRef.current;
+    if (!element || mode !== "slider") return undefined;
+    const update = () => setWidth(element.clientWidth);
+    const frame = requestAnimationFrame(update);
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [mode, older, newer]);
 
   return (
-    <Sheet
-      title="体重"
-      onClose={onClose}
-      trailing={
-        <button type="submit" form="weight-form" className="navTextButton strong">
-          保存
+    <div className="compareView">
+      <header className="viewerTop">
+        <button type="button" className="viewerText" onClick={onClose}>
+          <IconChevron />
+          戻る
         </button>
-      }
-    >
-      <form id="weight-form" onSubmit={save}>
-        <p className="sheetLead">{formatJapaneseDate(dateKey)}</p>
-        <div className="group">
-          <label className="cell field">
-            <span>kg</span>
-            <input
-              value={text}
-              onChange={(event) => {
-                setText(event.target.value);
-                setError("");
-              }}
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder="62.4"
-              autoFocus
-            />
-          </label>
+        <div className="zoomControl inline" role="tablist" aria-label="比較">
+          <button type="button" className={mode === "side" ? "active" : ""} onClick={() => setMode("side")}>
+            並べて
+          </button>
+          <button type="button" className={mode === "slider" ? "active" : ""} onClick={() => setMode("slider")}>
+            スライダー
+          </button>
         </div>
-        {error ? <p className="formError">{error}</p> : null}
-      </form>
-    </Sheet>
+        <span className="viewerSpacer" />
+      </header>
+      {mode === "side" ? (
+        <div className="comparePhotos">
+          {[older, newer].map((photo) => (
+            <figure key={photo.dateKey}>
+              <img src={photo.url} alt={`${formatLibraryDate(photo.dateKey, todayKey)}の全身写真`} />
+              <figcaption>
+                <strong>{formatLibraryDate(photo.dateKey, todayKey)}</strong>
+                <span>{kgPhrase(weights, photo.dateKey)}</span>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      ) : (
+        <div className="sliderStage">
+          <div className="sliderFrame" ref={frameRef}>
+            <img src={newer.url} alt={`${formatLibraryDate(newer.dateKey, todayKey)}の全身写真`} />
+            <div className="sliderClip" style={{ width: `${pos}%` }}>
+              <img src={older.url} alt="" style={{ width: width ? `${width}px` : "100%" }} />
+            </div>
+            <input
+              className="sliderRange"
+              type="range"
+              min="0"
+              max="100"
+              value={pos}
+              aria-label="比較の位置"
+              onChange={(event) => setPos(Number(event.target.value))}
+            />
+          </div>
+          <div className="sliderLabels">
+            <span>
+              {formatLibraryDate(older.dateKey, todayKey)}
+              <small>{kgPhrase(weights, older.dateKey)}</small>
+            </span>
+            <span>
+              {formatLibraryDate(newer.dateKey, todayKey)}
+              <small>{kgPhrase(weights, newer.dateKey)}</small>
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -70,6 +99,7 @@ export default function PhotoDay({
   weights,
   todayKey,
   onSaveWeight,
+  onDeleteWeight,
   onSavePhoto,
   onDeletePhoto,
   notify,
@@ -336,29 +366,13 @@ export default function PhotoDay({
       ) : null}
 
       {compareWith && byDate.get(compareWith) && viewer ? (
-        <div className="compareView">
-          <header className="viewerTop">
-            <button type="button" className="viewerText" onClick={() => setCompareWith(null)}>
-              <IconChevron />
-              戻る
-            </button>
-            <div className="viewerTitle">
-              <strong>比較</strong>
-            </div>
-            <span className="viewerSpacer" />
-          </header>
-          <div className="comparePhotos">
-            {[byDate.get(compareWith), viewer].sort((a, b) => a.dateKey.localeCompare(b.dateKey)).map((photo) => (
-              <figure key={photo.dateKey}>
-                <img src={photo.url} alt={`${formatLibraryDate(photo.dateKey, todayKey)}の全身写真`} />
-                <figcaption>
-                  <strong>{formatLibraryDate(photo.dateKey, todayKey)}</strong>
-                  <span>{kgPhrase(weights, photo.dateKey)}</span>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        </div>
+        <ComparePane
+          older={[byDate.get(compareWith), viewer].sort((a, b) => a.dateKey.localeCompare(b.dateKey))[0]}
+          newer={[byDate.get(compareWith), viewer].sort((a, b) => a.dateKey.localeCompare(b.dateKey))[1]}
+          weights={weights}
+          todayKey={todayKey}
+          onClose={() => setCompareWith(null)}
+        />
       ) : null}
 
       {pickingCompare ? (
@@ -388,10 +402,17 @@ export default function PhotoDay({
       ) : null}
 
       {weightFor ? (
-        <WeightSheet
+        <WeightBoard
+          key={weightFor}
           dateKey={weightFor}
-          entry={weights[weightFor]}
+          todayKey={todayKey}
+          weights={weights}
           onSave={onSaveWeight}
+          onDelete={(dateKey) => {
+            onDeleteWeight(dateKey);
+            setWeightFor(null);
+          }}
+          onPickDate={setWeightFor}
           onClose={() => setWeightFor(null)}
         />
       ) : null}
