@@ -27,6 +27,7 @@ export const exerciseOptions = [
   { name: "ダンベルプレス", part: "chest" },
   { name: "チェストプレス", part: "chest" },
   { name: "ラットプルダウン", part: "back" },
+  { name: "チンニング", part: "back" },
   { name: "シーテッドロー", part: "back" },
   { name: "デッドリフト", part: "back" },
   { name: "サイドレイズ", part: "shoulder" },
