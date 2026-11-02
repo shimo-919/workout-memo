@@ -49,6 +49,20 @@ export function formatJapaneseDate(dateKey) {
   return `${Number(y)}年${Number(m)}月${Number(d)}日`;
 }
 
+export function formatLibraryDate(dateKey, todayKey) {
+  if (dateKey === todayKey) return "今日";
+  if (dateKey === addDays(todayKey, -1)) return "昨日";
+  const date = parseDateKey(dateKey);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  if (date.getFullYear() === parseDateKey(todayKey).getFullYear()) return `${month}月${day}日`;
+  return `${date.getFullYear()}年${month}月${day}日`;
+}
+
+export function weekdayLabel(dateKey) {
+  return ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"][parseDateKey(dateKey).getDay()];
+}
+
 export function formatShortDate(dateKey) {
   const [, m, d] = dateKey.split("-");
   return `${Number(m)}/${Number(d)}`;

@@ -28,9 +28,9 @@ button {
   align-content: center;
   gap: 8px;
   padding: 24px;
-  background: #f7f4f3;
-  color: #2c2422;
-  font-family: system-ui, sans-serif;
+  background: #f2f2f7;
+  color: #000;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
 }
 
 .crash h1,
@@ -41,9 +41,9 @@ button {
 .crash button {
   margin-top: 8px;
   border: none;
-  border-radius: 14px;
-  background: #b94a48;
+  border-radius: 10px;
+  background: #007aff;
   color: #fff;
   padding: 12px 16px;
-  font-weight: 800;
+  font-weight: 600;
 }
