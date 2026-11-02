@@ -296,7 +296,7 @@ h1, h2, h3, p { margin: 0; }
 .sheetBackdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 80;
   background: var(--sheet-dim);
   display: flex;
   align-items: flex-end;
@@ -323,9 +323,10 @@ h1, h2, h3, p { margin: 0; }
 .sheetBar {
   height: 44px;
   display: grid;
-  grid-template-columns: 96px 1fr 96px;
+  grid-template-columns: minmax(108px, auto) 1fr minmax(64px, auto);
   align-items: center;
 }
+.sheetBar .navTextButton { white-space: nowrap; padding: 0 12px; }
 .sheetBar h2 { text-align: center; font-size: 17px; font-weight: 600; }
 .sheetTrail { display: flex; justify-content: flex-end; }
 
@@ -650,3 +651,123 @@ h1, h2, h3, p { margin: 0; }
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
+
+.navMore {
+  position: fixed;
+  z-index: 25;
+  top: env(safe-area-inset-top);
+  left: 2px;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--blue);
+  display: grid;
+  place-items: center;
+}
+
+.actionRow {
+  width: 100%;
+  min-height: 56px;
+  border: none;
+  border-top: 0.5px solid var(--separator);
+  background: transparent;
+  color: var(--blue);
+  font-size: 20px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.stats > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 4px;
+}
+.stats > div + div { box-shadow: inset 0.5px 0 0 var(--separator); }
+.stats strong { font-size: 22px; font-weight: 600; letter-spacing: -0.4px; }
+.stats span { color: var(--secondary); font-size: 12px; }
+
+.cellBody.asButton {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+}
+.pointRight .symbol { transform: rotate(180deg); }
+.moveButtons { display: flex; }
+.moveButtons button {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--blue);
+  padding: 0;
+}
+.moveButtons button .symbol { transform: rotate(90deg); }
+.moveButtons button.flip .symbol { transform: rotate(-90deg); }
+.moveButtons button:disabled { opacity: 0.25; }
+.navTextButton.destructive { color: var(--red); }
+.cellValue {
+  margin-left: auto;
+  color: var(--secondary);
+  font-size: 17px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cellValue small { font-size: 13px; }
+
+.trendChart { width: calc(100% - 32px); height: auto; margin: 4px 16px 12px; display: block; }
+.chartLine, .chartAverage { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chartLine { stroke: var(--blue); }
+.chartAverage { stroke: var(--secondary); stroke-dasharray: 4 3; }
+.chartDot { fill: var(--blue); }
+.chartAxis { stroke: var(--separator); }
+.chartLabel { fill: var(--secondary); font-size: 11px; }
+
+.zoomControl.inline,
+.viewerTop .zoomControl {
+  position: static;
+  transform: none;
+  left: auto;
+  bottom: auto;
+  margin: 4px 16px 12px;
+}
+.viewerTop .zoomControl { margin: 0; background: rgba(255, 255, 255, 0.16); }
+.viewerTop .zoomControl button { color: #fff; }
+.viewerTop .zoomControl button.active { background: rgba(255, 255, 255, 0.92); color: #000; }
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 20px 8px;
+  color: var(--label);
+  font-size: 15px;
+}
+.switchRow input { width: 22px; height: 22px; margin: 0; }
+
+.sliderStage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(60px + env(safe-area-inset-top));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+}
+.sliderFrame { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; }
+.sliderFrame > img { width: 100%; height: 100%; object-fit: contain; }
+.sliderClip { position: absolute; top: 0; bottom: 0; left: 0; overflow: hidden; border-right: 1px solid #fff; }
+.sliderClip img { position: absolute; top: 0; left: 0; height: 100%; max-width: none; object-fit: contain; }
+.sliderRange { position: absolute; left: 16px; right: 16px; bottom: 12px; width: calc(100% - 32px); margin: 0; }
+.sliderLabels { display: flex; justify-content: space-between; gap: 12px; color: #fff; font-size: 13px; padding: 8px 12px 0; }
+.sliderLabels small { display: block; margin-top: 2px; color: rgba(255, 255, 255, 0.75); font-size: 12px; }
